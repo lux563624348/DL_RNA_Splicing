@@ -49,7 +49,7 @@ def assign_labels(block_start, block_end, psi_dict, PADDING=5000, BLOCK_SIZE = 1
                 # For this example: tissue is heart → positions 0–2
                 labels[rel_pos, 0] = 1 if psi < 0.1 else 0
                 labels[rel_pos, 1] = 0 if psi < 0.1 else 1
-                labels[rel_pos, 2] = psi
+                labels[rel_pos, 2] = 0 if psi < 0.1 else psi
     #return labels[mid_start:mid_end]  # Return only the middle 5000
     return labels.T  # Return Full
 

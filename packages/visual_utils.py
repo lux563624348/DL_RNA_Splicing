@@ -2,6 +2,7 @@
 ## VISUAL Module
 
 import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
 import numpy as np
 
 def plot_one_hot(array, title="One-Hot Encoded Sequence"):
@@ -23,6 +24,27 @@ def plot_one_hot(array, title="One-Hot Encoded Sequence"):
     plt.colorbar(label="One-hot value")
     plt.tight_layout()
     plt.show()
+
+def Plot_2D_Array(array):
+    ## 2D torch tensor, shape =  torch.Size([3, 15000])
+    # Plot
+    fig, axes = plt.subplots(3, 1, figsize=(14, 6), sharex=True)
+    colors = ['gray', 'blue', 'red']
+    labels = ['Un', 'S', 'Usage']
+    # X-axis (sequence positions)
+    x = np.arange(len(array[0]))
+    
+    for i in range(3):
+        axes[i].plot(x, array[i], color = colors[i])
+        axes[i].set_ylabel(labels[i])
+        axes[i].set_ylim(0, 1)
+        axes[i].grid(True)
+    
+    axes[-1].set_xlabel("Sequence Position")
+    fig.suptitle("Individual Class Predictions Over Sequence", y=1.02)
+    plt.tight_layout()
+    plt.show()
+    return None
 
 def plot_one_hot_and_labels_zoom(one_hot_array, label_array, zoom_start=0, zoom_end=None, title="Zoomed Sequence and Labels"):
     """
@@ -75,7 +97,7 @@ def plot_one_hot_and_labels_zoom(one_hot_array, label_array, zoom_start=0, zoom_
             class_labels.append(0)
 
     # --- Plot ---
-    fig, axes = plt.subplots(3, 1, figsize=(14, 6), sharex=True, gridspec_kw={"height_ratios": [3, 1, 1]})
+    fig, axes = plt.subplots(3, 1, figsize=(14, 6), sharex=True, gridspec_kw={"height_ratios": [1, 1, 1]})
 
     # One-hot sequence
     axes[0].imshow(one_hot_zoom, aspect='auto', cmap='Greys', interpolation='nearest',
@@ -85,16 +107,20 @@ def plot_one_hot_and_labels_zoom(one_hot_array, label_array, zoom_start=0, zoom_
     axes[0].set_title("One-Hot Encoded Sequence")
 
     # Splice class
-    axes[1].imshow([class_labels], aspect='auto', cmap='bwr', interpolation='nearest',
+    # Define custom colormap
+    cmap = mcolors.ListedColormap(['gray', 'white', 'red'])
+    bounds = [-0.5, 0.5, 1.5, 2.5]
+    norm = mcolors.BoundaryNorm(bounds, cmap.N)
+    axes[1].imshow([class_labels], aspect='auto', cmap=cmap, norm=norm, interpolation='nearest',
                    extent=[label_positions[0] if len(label_positions) > 0 else zoom_start, 
                            label_positions[-1] + 1 if len(label_positions) > 0 else zoom_end, 0, 1])
     axes[1].set_yticks([0.5])
     axes[1].set_yticklabels(["Splice Class"])
-    axes[1].set_title("Splice Class (0=unknown, 1=unspliced, 2=spliced)")
+    axes[1].set_title("Splice Class (Grey=unknown, White=unspliced, Red=spliced)")
 
     # Usage
     if label_zoom.shape[1] > 0:
-        axes[2].plot(label_positions, usage[:label_zoom_len], color='blue')
+        axes[2].plot(label_positions, usage[:label_zoom_len], color='Red')
     else:
         axes[2].plot(np.arange(zoom_start, zoom_end), np.zeros(zoom_len), color='gray')
     axes[2].set_ylim(0, 1)
@@ -149,55 +175,66 @@ def plot_one_hot_and_predictions_zoom(one_hot_array, prediction_array, zoom_star
         pred_positions = np.arange(pred_start + pred_start_idx, pred_start + pred_end_idx)
 
     # --- Plot ---
-    fig, axes = plt.subplots(3, 1, figsize=(14, 6), sharex=True, gridspec_kw={"height_ratios": [3, 1, 1]})
+    fig, axes = plt.subplots(3, 1, figsize=(14, 6), sharex=True, gridspec_kw={"height_ratios": [1, 1, 1]})
 
-    # One-hot sequence
-    axes[0].imshow(one_hot_zoom, aspect='auto', cmap='Greys', interpolation='nearest',
-                   extent=[zoom_start, zoom_end, 0, 4])
-    axes[0].set_yticks([0.5, 1.5, 2.5, 3.5])
-    axes[0].set_yticklabels(['A', 'C', 'G', 'T'])
-    axes[0].set_title("One-Hot Encoded Sequence")
+
 
     # Predicted splice class
+     # Convert class labels: 0 = unknown, 1 = unspliced, 2 = spliced
     if pred_zoom.shape[1] > 0:
         unspliced = pred_zoom[0, :]
         spliced = pred_zoom[1, :]
         class_labels = []
         for u, s in zip(unspliced, spliced):
-            if (u - s) > 0.5:
+            if (u - s) > 0.9:
                 class_labels.append(1)
-            elif (s - u) > 0.5:
+            elif (s - u) > 0.2:
                 class_labels.append(2)
             else:
                 class_labels.append(0)
-        axes[1].imshow([class_labels], aspect='auto', cmap='bwr', interpolation='nearest',
+
+        # Define custom colormap
+        cmap = mcolors.ListedColormap(['gray', 'white', 'red'])
+        bounds = [-0.5, 0.5, 1.5, 2.5]
+        norm = mcolors.BoundaryNorm(bounds, cmap.N)
+        
+        axes[0].imshow([class_labels], aspect='auto', cmap=cmap, norm=norm, interpolation='nearest',
                        extent=[pred_positions[0], pred_positions[-1] + 1, 0, 1])
     else:
-        axes[1].imshow([[0] * zoom_len], aspect='auto', cmap='bwr', interpolation='nearest',
-                       extent=[zoom_start, zoom_end, 0, 1])
-    axes[1].set_yticks([0.5])
-    axes[1].set_yticklabels(["Splice Class"])
-    axes[1].set_title("Predicted Splice Class (0=unknown, 1=unspliced, 2=spliced)")
+        axes[0].imshow([[0] * zoom_len], aspect='auto', cmap=mcolors.ListedColormap(['gray']),
+                       interpolation='nearest', extent=[zoom_start, zoom_end, 0, 1])
+    axes[0].set_yticks([0.5])
+    axes[0].set_yticklabels(["Splice Class"])
+    axes[0].set_title("Splice Class (Grey=unknown, White=unspliced, Red=spliced)")
 
     # Predicted usage
     if pred_zoom.shape[1] > 0:
         usage = pred_zoom[2, :]
-        axes[2].plot(pred_positions, usage, color='blue')
+        axes[1].plot(pred_positions, usage, color='red')
     else:
-        axes[2].plot(np.arange(zoom_start, zoom_end), np.zeros(zoom_len), color='gray')
-    axes[2].set_ylim(0, 1)
-    axes[2].set_ylabel("Usage")
-    axes[2].set_title("Predicted Usage Level")
+        axes[1].plot(np.arange(zoom_start, zoom_end), np.zeros(zoom_len), color='gray')
+        
+    axes[1].set_ylim(0, 1)
+    axes[1].set_ylabel("Usage")
+    axes[1].set_title("Predicted Usage Level")
 
     # X ticks
     step = max(zoom_len // 10, 1)
     xtick_positions = list(range(zoom_start, zoom_end, step))
     xtick_labels = [str(i) for i in xtick_positions]
-    axes[2].set_xticks(xtick_positions)
-    axes[2].set_xticklabels(xtick_labels, rotation=90)
-    axes[2].set_xlabel("Position in Sequence")
+    axes[1].set_xticks(xtick_positions)
+    axes[1].set_xticklabels(xtick_labels, rotation=90)
+    axes[1].set_xlabel("Position in Sequence")
 
+        # One-hot sequence
+    axes[2].imshow(one_hot_zoom, aspect='auto', cmap='Greys', interpolation='nearest',
+                   extent=[zoom_start, zoom_end, 0, 4])
+    axes[2].set_yticks([0.5, 1.5, 2.5, 3.5])
+    axes[2].set_yticklabels(['A', 'C', 'G', 'T'])
+    axes[2].set_title("One-Hot Encoded Sequence")
+    
     plt.tight_layout()
     plt.suptitle(title, y=1.03, fontsize=14)
     plt.show()
-    return None
+    return None 
+    #class_labels
