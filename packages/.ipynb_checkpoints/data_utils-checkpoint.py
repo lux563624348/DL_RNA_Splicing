@@ -26,7 +26,7 @@ def parse_coords(coord_str):
     start, end = map(int, coord_str.split('-'))
     return start, end
 
-def make_blocks(start, end, chrom, genome, PADDING=5000, BLOCK_SIZE = 15000):
+def make_blocks_no_Pad(start, end, chrom, genome, PADDING=5000, BLOCK_SIZE = 15000):
     region_start = max(0, start - PADDING)
     region_end = end + PADDING
     sequence = genome[chrom][region_start:region_end].seq.upper()
@@ -36,6 +36,26 @@ def make_blocks(start, end, chrom, genome, PADDING=5000, BLOCK_SIZE = 15000):
         block_seq = sequence[i:i + BLOCK_SIZE]
         blocks.append((region_start + i, region_start + i + BLOCK_SIZE, block_seq))
     return blocks
+
+def make_blocks(start, end, chrom, genome, PADDING=5000, BLOCK_SIZE=15000):
+    region_start = max(0, start - PADDING)
+    region_end = end + PADDING
+    sequence = genome[chrom][region_start:region_end].seq.upper()
+
+    blocks = []
+    if len(sequence) < BLOCK_SIZE:
+        # Pad with Ns to reach BLOCK_SIZE
+        pad_len = BLOCK_SIZE - len(sequence)
+        padded_seq = sequence + 'N' * pad_len
+        blocks.append((region_start, region_start + BLOCK_SIZE, padded_seq))
+    else:
+        # Standard sliding window
+        for i in range(0, len(sequence) - BLOCK_SIZE + 1, PADDING):
+            block_seq = sequence[i:i + BLOCK_SIZE]
+            blocks.append((region_start + i, region_start + i + BLOCK_SIZE, block_seq))
+
+    return blocks
+
 
 def assign_labels(block_start, block_end, psi_dict, PADDING=5000, BLOCK_SIZE = 15000):
     labels = np.zeros((BLOCK_SIZE, 3))  # 12 for 1 tissue (spliced/unspliced/usage) x 4 tissues
