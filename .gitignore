@@ -1,2 +1,5 @@
 raw_data/*
 *.pt
+.ipynb_checkpoints/*
+*.txt
+*.tsv

@@ -236,5 +236,5 @@ def plot_one_hot_and_predictions_zoom(one_hot_array, prediction_array, zoom_star
     plt.tight_layout()
     plt.suptitle(title, y=1.03, fontsize=14)
     plt.show()
-    return None 
+    return None
     #class_labels
