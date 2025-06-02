@@ -12,7 +12,7 @@ BASE_DICT = {'A': [1, 0, 0, 0],
 def one_hot_encode(seq):
     return np.array([BASE_DICT.get(base.upper(), [0, 0, 0, 0]) for base in seq]).T
 
-def decode_one_hot(array):
+def decode_one_hot_old(array):
     index_to_base = {tuple([1, 0, 0, 0]): 'A',
                      tuple([0, 1, 0, 0]): 'C',
                      tuple([0, 0, 1, 0]): 'G',
@@ -20,6 +20,19 @@ def decode_one_hot(array):
                      tuple([0, 0, 0, 0]): 'N'}  # unknown or padding
 
     return ''.join(index_to_base.get(tuple(vec), 'N') for vec in array.T)
+
+
+def decode_one_hot(tensor):
+    index_to_base = {
+        (1, 0, 0, 0): 'A',
+        (0, 1, 0, 0): 'C',
+        (0, 0, 1, 0): 'G',
+        (0, 0, 0, 1): 'T',
+        (0, 0, 0, 0): 'N'  # unknown or padding
+    }
+    
+    # Transpose to iterate over columns (each column is one base)
+    return ''.join(index_to_base.get(tuple(tensor[:, i].int().tolist()), 'N') for i in range(tensor.shape[1]))
 
 def parse_coords(coord_str):
     # format: "start-end"
@@ -37,7 +50,9 @@ def make_blocks_no_Pad(start, end, chrom, genome, PADDING=5000, BLOCK_SIZE = 150
         blocks.append((region_start + i, region_start + i + BLOCK_SIZE, block_seq))
     return blocks
 
-def make_blocks(start, end, chrom, genome, PADDING=5000, BLOCK_SIZE=15000):
+def make_blocks_pad(start, end, chrom, genome, PADDING=5000, BLOCK_SIZE=15000):
+    ### if region < block_size
+    
     region_start = max(0, start - PADDING)
     region_end = end + PADDING
     sequence = genome[chrom][region_start:region_end].seq.upper()
@@ -53,8 +68,56 @@ def make_blocks(start, end, chrom, genome, PADDING=5000, BLOCK_SIZE=15000):
         for i in range(0, len(sequence) - BLOCK_SIZE + 1, PADDING):
             block_seq = sequence[i:i + BLOCK_SIZE]
             blocks.append((region_start + i, region_start + i + BLOCK_SIZE, block_seq))
-
     return blocks
+
+def make_blocks(start, end, chrom, genome, FIXED_PADDING=5000, BLOCK_SIZE=15000):
+    """
+    Create blocks of sequence for a region. Uses dynamic padding if region is short;
+    otherwise uses fixed padding and sliding window.
+
+    Args:
+        start (int): Start coordinate of region.
+        end (int): End coordinate of region.
+        chrom (str): Chromosome name.
+        genome (pyfaidx.Fasta): Loaded genome object.
+        BLOCK_SIZE (int): Desired block size.
+        FIXED_PADDING (int): Padding to apply for long regions.
+
+    Returns:
+        List of (block_start, block_end, sequence) tuples.
+    """
+    region_len = end - start
+
+    if region_len <= BLOCK_SIZE:
+        # Case 1: Short region → apply dynamic padding
+        pad_total = max(0, BLOCK_SIZE - region_len)
+        pad_left = pad_total // 2
+        pad_right = pad_total - pad_left
+
+        region_start = max(0, start - pad_left)
+        region_end = end + pad_right
+
+        sequence = genome[chrom][region_start:region_end].seq.upper()
+        if len(sequence) < BLOCK_SIZE:
+            sequence += 'N' * (BLOCK_SIZE - len(sequence))
+
+        return [(region_start, region_end, sequence)]
+
+    else:
+        # Case 2: Long region → fixed padding and sliding window
+        region_start = max(0, start - FIXED_PADDING)
+        region_end = end + FIXED_PADDING
+
+        full_seq = genome[chrom][region_start:region_end].seq.upper()
+        blocks = []
+
+        for i in range(0, len(full_seq) - BLOCK_SIZE + 1, FIXED_PADDING):
+            block_seq = full_seq[i:i + BLOCK_SIZE]
+            block_start = region_start + i
+            block_end = block_start + BLOCK_SIZE
+            blocks.append((block_start, block_end, block_seq))
+
+        return blocks
 
 
 def assign_labels(block_start, block_end, psi_dict, PADDING=5000, BLOCK_SIZE = 15000):

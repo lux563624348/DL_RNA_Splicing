@@ -1,4 +1,4 @@
-## usage: python training.py --input 102_training_data_sequece_exp.pt --epochs 30 --model seq_exp --output 102_model_exp.pt
+## usage: python training.py --input 102_training_data_sequece_exp.pt --epochs 30 --model exp --output 102_model_exp.pt
 
 
 import torch

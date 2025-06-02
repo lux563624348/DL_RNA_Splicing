@@ -48,11 +48,11 @@ def Plot_2D_Array(array):
 
 def plot_one_hot_and_labels_zoom(one_hot_array, label_array, zoom_start=0, zoom_end=None, title="Zoomed Sequence and Labels"):
     """
-    Plot one-hot encoded sequence and label data for a zoomed-in region.
+    Plot one-hot encoded sequence, expression data, label classes (U, S), and usage.
 
     Args:
-        one_hot_array: (4, sequence_length) numpy array
-        label_array: (12, label_length) numpy array
+        one_hot_array: (>=4, sequence_length) numpy array
+        label_array: (>=3, label_length) numpy array
         zoom_start: start position of zoom window in input coordinates
         zoom_end: end position of zoom window in input coordinates
         title: plot title
@@ -65,78 +65,82 @@ def plot_one_hot_and_labels_zoom(one_hot_array, label_array, zoom_start=0, zoom_
         zoom_end = seq_len
     zoom_len = zoom_end - zoom_start
 
-    # --- Slice one-hot array ---
-    one_hot_zoom = one_hot_array[:, zoom_start:zoom_end]  # shape (4, zoom_len)
+    # Slice one-hot array
+    one_hot_zoom = one_hot_array[:, zoom_start:zoom_end]  # shape (channels, zoom_len)
 
-    # --- Calculate label slice range ---
+    # Expression starts from index 4
+    sequence = one_hot_zoom[0:4, :]
+    expression = one_hot_zoom[4:, :] if one_hot_zoom.shape[0] > 4 else np.zeros((1, zoom_len))
+
+    # Calculate label slice range
     label_start_idx = max(0, zoom_start - input_start_for_labels)
     label_end_idx = max(0, zoom_end - input_start_for_labels)
     label_zoom_len = label_end_idx - label_start_idx
 
     if label_start_idx >= label_len:
-        label_zoom = np.zeros((12, zoom_len))
+        label_zoom = np.zeros((label_array.shape[0], zoom_len))
         label_positions = np.arange(zoom_start, zoom_end)
     else:
         label_zoom = label_array[:, label_start_idx:label_end_idx]
         label_positions = np.arange(input_start_for_labels + label_start_idx,
                                     input_start_for_labels + label_end_idx)
 
-    # Extract specific label channels
+    # Extract U, S, Usage
     unspliced = label_zoom[0, :]
     spliced = label_zoom[1, :]
-    usage = label_zoom[2, :] if label_zoom.shape[1] > 0 else np.zeros(label_zoom.shape[1])
+    usage = label_zoom[2, :] if label_zoom.shape[0] > 2 else np.zeros(label_zoom.shape[1])
 
-    # Convert class labels: 0 = unknown, 1 = unspliced, 2 = spliced
-    class_labels = []
-    for u, s in zip(unspliced, spliced):
-        if u == 1 and s == 0:
-            class_labels.append(1)
-        elif u == 0 and s == 1:
-            class_labels.append(2)
-        else:
-            class_labels.append(0)
+    # Plot setup
+    fig, axes = plt.subplots(4, 1, figsize=(14, 8), sharex=True, 
+                             gridspec_kw={"height_ratios": [1, 1, 1, 1]})
 
-    # --- Plot ---
-    fig, axes = plt.subplots(3, 1, figsize=(14, 6), sharex=True, gridspec_kw={"height_ratios": [1, 1, 1]})
-
-    # One-hot sequence
-    axes[0].imshow(one_hot_zoom, aspect='auto', cmap='Greys', interpolation='nearest',
+    # --- Plot 1: Sequence TGCA ---
+    axes[0].imshow(sequence, aspect='auto', cmap='Greys', interpolation='nearest',
                    extent=[zoom_start, zoom_end, 0, 4])
     axes[0].set_yticks([0.5, 1.5, 2.5, 3.5])
-    axes[0].set_yticklabels(['A', 'C', 'G', 'T'])
-    axes[0].set_title("One-Hot Encoded Sequence")
+    axes[0].set_yticklabels(['T', 'G', 'C', 'A'])
+    axes[0].set_title("One-Hot Encoded Sequence (TGCA)")
 
-    # Splice class
-    # Define custom colormap
-    cmap = mcolors.ListedColormap(['gray', 'white', 'red'])
-    bounds = [-0.5, 0.5, 1.5, 2.5]
-    norm = mcolors.BoundaryNorm(bounds, cmap.N)
-    axes[1].imshow([class_labels], aspect='auto', cmap=cmap, norm=norm, interpolation='nearest',
-                   extent=[label_positions[0] if len(label_positions) > 0 else zoom_start, 
-                           label_positions[-1] + 1 if len(label_positions) > 0 else zoom_end, 0, 1])
-    axes[1].set_yticks([0.5])
-    axes[1].set_yticklabels(["Splice Class"])
-    axes[1].set_title("Splice Class (Grey=unknown, White=unspliced, Red=spliced)")
+    # --- Plot 2: Expression ---
+    axes[1].imshow(expression, aspect='auto', cmap='viridis', interpolation='nearest',
+                   extent=[zoom_start, zoom_end, 0, expression.shape[0]])
+    axes[1].set_yticks(np.arange(0.5, expression.shape[0]))
+    axes[1].set_yticklabels([f'Exp{i}' for i in range(expression.shape[0])])
+    axes[1].set_title("Expression (Additional One-Hot Channels)")
 
-    # Usage
+    # --- Plot 3: Labels U/S (as line plots like Usage) ---
     if label_zoom.shape[1] > 0:
-        axes[2].plot(label_positions, usage[:label_zoom_len], color='Red')
+        axes[2].plot(label_positions, unspliced[:label_zoom_len], label='U', color='blue', linewidth=1)
+        axes[2].plot(label_positions, spliced[:label_zoom_len], label='S', color='green', linewidth=1)
     else:
-        axes[2].plot(np.arange(zoom_start, zoom_end), np.zeros(zoom_len), color='gray')
-    axes[2].set_ylim(0, 1)
-    axes[2].set_ylabel("Usage")
-    axes[2].set_title("Estimated Usage Level")
+        axes[2].plot(np.arange(zoom_start, zoom_end), np.zeros(zoom_len), label='U', color='blue')
+        axes[2].plot(np.arange(zoom_start, zoom_end), np.zeros(zoom_len), label='S', color='green')
 
-    # X ticks
+    axes[2].set_ylim(0, 1)
+    axes[2].set_ylabel("Label")
+    axes[2].set_title("Label Classes (U: blue, S: green)")
+    axes[2].legend(loc='upper right')
+
+
+    # --- Plot 4: Usage ---
+    if label_zoom.shape[1] > 0:
+        axes[3].plot(label_positions, usage[:label_zoom_len], color='Red')
+    else:
+        axes[3].plot(np.arange(zoom_start, zoom_end), np.zeros(zoom_len), color='gray')
+    axes[3].set_ylim(0, 1)
+    axes[3].set_ylabel("Usage")
+    axes[3].set_title("Estimated Usage Level")
+
+    # X-axis ticks
     step = max(zoom_len // 20, 1)
     xtick_positions = list(range(zoom_start, zoom_end, step))
     xtick_labels = [str(i) for i in xtick_positions]
-    axes[2].set_xticks(xtick_positions)
-    axes[2].set_xticklabels(xtick_labels, rotation=90)
-    axes[2].set_xlabel("Position in Sequence")
+    axes[3].set_xticks(xtick_positions)
+    axes[3].set_xticklabels(xtick_labels, rotation=90)
+    axes[3].set_xlabel("Position in Sequence")
 
     plt.tight_layout()
-    plt.suptitle(title, y=1.03)
+    plt.suptitle(title, y=1.02)
     plt.show()
     return None
 
