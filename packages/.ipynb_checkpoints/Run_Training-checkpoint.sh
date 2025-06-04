@@ -1,6 +1,6 @@
 Data_ID=$1
 AWS_S3_PATH=s3://research.luffingfuturellc/Pangolin
-aws s3 cp $AWS_S3_PATH/${Data_ID} ./${Data_ID}
+#aws s3 cp $AWS_S3_PATH/${Data_ID} ./${Data_ID}
 
 python ./packages/training.py --input ./${Data_ID} --epochs 200 --model seq --output ${Data_ID/.pt/_model.pt}
 
