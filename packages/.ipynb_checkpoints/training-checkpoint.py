@@ -130,8 +130,8 @@ class PangolinEXP(nn.Module):
                 dense = self.convs[j](conv)
                 j += 1
                 skip = skip + dense
-        CL = 2 * np.sum(AR * (W - 1))
-        skip = F.pad(skip, (-CL // 2, -CL // 2))
+        #CL = 2 * np.sum(AR * (W - 1))
+        #skip = F.pad(skip, (-CL // 2, -CL // 2))
         out1 = F.softmax(self.conv_last1(skip), dim=1)
         out2 = torch.sigmoid(self.conv_last2(skip))
         out3 = F.softmax(self.conv_last3(skip), dim=1)
