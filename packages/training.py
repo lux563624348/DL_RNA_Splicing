@@ -63,6 +63,20 @@ class Pangolin(nn.Module):
         self.conv_last6 = nn.Conv1d(L, 1, 1)
         self.conv_last7 = nn.Conv1d(L, 2, 1)
         self.conv_last8 = nn.Conv1d(L, 1, 1)
+        self.init_weights()
+        
+    def init_weights(self):
+        # Bias final binary conv layers so initial sigmoid ≈ 0
+        nn.init.constant_(self.conv_last2.bias, -5.0)
+        nn.init.constant_(self.conv_last4.bias, -5.0)
+        nn.init.constant_(self.conv_last6.bias, -5.0)
+        nn.init.constant_(self.conv_last8.bias, -5.0)
+    
+        # Optionally init weights to zero for those layers too
+        nn.init.constant_(self.conv_last2.weight, 0.0)
+        nn.init.constant_(self.conv_last4.weight, 0.0)
+        nn.init.constant_(self.conv_last6.weight, 0.0)
+        nn.init.constant_(self.conv_last8.weight, 0.0)
 
     def forward(self, x):
         conv = self.conv1(x)
@@ -74,8 +88,8 @@ class Pangolin(nn.Module):
                 dense = self.convs[j](conv)
                 j += 1
                 skip = skip + dense
-        CL = 2 * np.sum(AR * (W - 1))
-        skip = F.pad(skip, (-CL // 2, -CL // 2))
+        #CL = 2 * np.sum(AR * (W - 1))
+        #skip = F.pad(skip, (-CL // 2, -CL // 2))
         out1 = F.softmax(self.conv_last1(skip), dim=1)
         out2 = torch.sigmoid(self.conv_last2(skip))
         out3 = F.softmax(self.conv_last3(skip), dim=1)
@@ -128,6 +142,32 @@ class PangolinEXP(nn.Module):
         out8 = torch.sigmoid(self.conv_last8(skip))
         return torch.cat([out1, out2, out3, out4, out5, out6, out7, out8], 1)
 
+def sharpened_focal_mse(pred, target, gamma=2.0, min_target=0.01, peak_boost=2.0):
+    # Only focus on meaningful (non-zero) target positions
+    mask = (target > min_target)
+    if mask.sum() == 0:
+        return torch.tensor(0.0, device=pred.device, requires_grad=True)
+
+    # Error
+    error = (pred[mask] - target[mask]).pow(2)
+
+    # Sharpening weight: boost near high-usage (peak) values
+    target_vals = target[mask]
+    sharpen_weight = (target_vals ** peak_boost)  # prioritize sharp peaks
+    focal_weight = torch.abs(pred[mask] - target_vals).pow(gamma)
+
+    # Combine weights
+    weight = sharpen_weight * focal_weight
+    return torch.mean(weight * error)
+
+
+def masked_focal_mse(pred, target, gamma=2.0, min_target=0.01):
+    mask = (target > min_target)
+    if mask.sum() == 0:
+        return torch.tensor(0.0, device=pred.device, requires_grad=True)
+    error = (pred[mask] - target[mask]).pow(2)
+    weight = torch.abs(pred[mask] - target[mask]).pow(gamma)
+    return torch.mean(weight * error)
 
 
 def main():
@@ -157,12 +197,13 @@ def main():
 
     # Pad to [N, 12, 15000], then crop [N, 12, 5000] from middle
     training_label_padded = F.pad(training_label, pad=(0, 0, 0, 9))
-    training_label_corped = training_label_padded[:, :, 5000:10000]
+    #training_label_corped = training_label_padded[:, :, 5000:10000]
 
-    dataset = TensorDataset(training_input, training_label_corped.to(device))
+    dataset = TensorDataset(training_input, training_label_padded.to(device))
     dataloader = DataLoader(dataset, batch_size=10, shuffle=True)
     
-    loss_fn = nn.MSELoss()
+    loss_fn = masked_focal_mse
+    
     optimizer = optim.Adam(model.parameters(), lr=1e-4)
 
     # ----- Training Loop -----

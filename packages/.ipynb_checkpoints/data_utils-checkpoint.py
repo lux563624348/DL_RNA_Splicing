@@ -50,7 +50,8 @@ def make_blocks_no_Pad(start, end, chrom, genome, PADDING=5000, BLOCK_SIZE = 150
         blocks.append((region_start + i, region_start + i + BLOCK_SIZE, block_seq))
     return blocks
 
-def make_blocks_pad(start, end, chrom, genome, PADDING=5000, BLOCK_SIZE=15000):
+def make_blocks_Pad(start, end, chrom, genome, PADDING=5000, BLOCK_SIZE=15000):
+    ### pad make blocks, very important for 
     ### if region < block_size
     
     region_start = max(0, start - PADDING)
@@ -86,7 +87,8 @@ def make_blocks(start, end, chrom, genome, FIXED_PADDING=5000, BLOCK_SIZE=15000)
     Returns:
         List of (block_start, block_end, sequence) tuples.
     """
-    region_len = end - start
+    
+    region_len = abs(end - start)
 
     if region_len <= BLOCK_SIZE:
         # Case 1: Short region → apply dynamic padding
@@ -119,7 +121,6 @@ def make_blocks(start, end, chrom, genome, FIXED_PADDING=5000, BLOCK_SIZE=15000)
 
         return blocks
 
-
 def assign_labels(block_start, block_end, psi_dict, PADDING=5000, BLOCK_SIZE = 15000):
     labels = np.zeros((BLOCK_SIZE, 3))  # 12 for 1 tissue (spliced/unspliced/usage) x 4 tissues
     mid_start = PADDING
@@ -128,7 +129,7 @@ def assign_labels(block_start, block_end, psi_dict, PADDING=5000, BLOCK_SIZE = 1
     for pos, psi in psi_dict.items():
         if block_start <= pos < block_end:
             rel_pos = pos - block_start
-            if mid_start <= rel_pos < mid_end:
+            if 0 <= rel_pos < BLOCK_SIZE:
                 # For this example: tissue is heart → positions 0–2
                 labels[rel_pos, 0] = 1 if psi < 0.1 else 0
                 labels[rel_pos, 1] = 0 if psi < 0.1 else 1

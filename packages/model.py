@@ -57,6 +57,20 @@ class Pangolin(nn.Module):
         self.conv_last6 = nn.Conv1d(L, 1, 1)
         self.conv_last7 = nn.Conv1d(L, 2, 1)
         self.conv_last8 = nn.Conv1d(L, 1, 1)
+        self.init_weights()
+        
+    def init_weights(self):
+        # Bias final binary conv layers so initial sigmoid ≈ 0
+        nn.init.constant_(self.conv_last2.bias, -5.0)
+        nn.init.constant_(self.conv_last4.bias, -5.0)
+        nn.init.constant_(self.conv_last6.bias, -5.0)
+        nn.init.constant_(self.conv_last8.bias, -5.0)
+    
+        # Optionally init weights to zero for those layers too
+        nn.init.constant_(self.conv_last2.weight, 0.0)
+        nn.init.constant_(self.conv_last4.weight, 0.0)
+        nn.init.constant_(self.conv_last6.weight, 0.0)
+        nn.init.constant_(self.conv_last8.weight, 0.0)
 
     def forward(self, x):
         conv = self.conv1(x)
@@ -68,8 +82,8 @@ class Pangolin(nn.Module):
                 dense = self.convs[j](conv)
                 j += 1
                 skip = skip + dense
-        CL = 2 * np.sum(AR * (W - 1))
-        skip = F.pad(skip, (-CL // 2, -CL // 2))
+        #CL = 2 * np.sum(AR * (W - 1))
+        #skip = F.pad(skip, (-CL // 2, -CL // 2))
         out1 = F.softmax(self.conv_last1(skip), dim=1)
         out2 = torch.sigmoid(self.conv_last2(skip))
         out3 = F.softmax(self.conv_last3(skip), dim=1)
