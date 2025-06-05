@@ -245,8 +245,8 @@ def main():
                 print("Loss has stabilized. Switching to soft F1 loss.")
                 use_f1_loss = True
     
-        # Save every 100 epochs
-        if epoch % 100 == 0:
+        # Save every 50 epochs
+        if epoch % 50 == 0:
             model_path = f"{os.path.splitext(args.output)[0]}_epoch{epoch}.pt"
             torch.save(model.state_dict(), model_path)
             print(f"Model checkpoint saved to {model_path}")
