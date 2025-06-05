@@ -169,6 +169,14 @@ def masked_focal_mse(pred, target, gamma=2.0, min_target=0.01):
     weight = torch.abs(pred[mask] - target[mask]).pow(gamma)
     return torch.mean(weight * error)
 
+# Soft F1 loss
+def soft_f1_loss(y_pred, y_true, epsilon=1e-7):
+    y_pred = torch.clamp(y_pred, 0, 1)
+    tp = torch.sum(y_true * y_pred, dim=[1, 2])
+    fp = torch.sum((1 - y_true) * y_pred, dim=[1, 2])
+    fn = torch.sum(y_true * (1 - y_pred), dim=[1, 2])
+    f1 = 2 * tp / (2 * tp + fp + fn + epsilon)
+    return 1 - f1.mean()
 
 def main():
     parser = argparse.ArgumentParser(description="Train Pangolin model on PSI data")
@@ -200,13 +208,49 @@ def main():
     #training_label_corped = training_label_padded[:, :, 5000:10000]
 
     dataset = TensorDataset(training_input, training_label_padded.to(device))
-    dataloader = DataLoader(dataset, batch_size=10, shuffle=True)
-    
-    loss_fn = masked_focal_mse
-    
+    dataloader = DataLoader(dataset, batch_size=16, shuffle=True)    
     optimizer = optim.Adam(model.parameters(), lr=1e-4)
 
     # ----- Training Loop -----
+    loss_fn = masked_focal_mse
+    use_f1_loss = False
+    recent_losses = []
+    for epoch in range(1, args.epochs + 1):
+        model.train()
+        running_loss = 0.0
+    
+        for batch_X, batch_y in dataloader:
+            batch_X, batch_y = batch_X.to(device), batch_y.to(device)
+            optimizer.zero_grad()
+            pred = model(batch_X)
+    
+            if use_f1_loss:
+                loss = soft_f1_loss(pred, batch_y)
+            else:
+                loss = masked_focal_mse(pred, batch_y)
+    
+            loss.backward()
+            optimizer.step()
+            running_loss += loss.item()
+    
+        avg_loss = running_loss / len(dataloader)
+        print(f"Epoch {epoch}/{args.epochs}, Loss: {avg_loss:.5f}")
+    
+        # Track recent loss history to detect stability
+        recent_losses.append(avg_loss)
+        if len(recent_losses) > 5:
+            recent_losses.pop(0)
+            std_loss = np.std(recent_losses)
+            if not use_f1_loss and std_loss < 1e-4:
+                print("Loss has stabilized. Switching to soft F1 loss.")
+                use_f1_loss = True
+    
+        # Save every 100 epochs
+        if epoch % 100 == 0:
+            model_path = f"{os.path.splitext(args.output)[0]}_epoch{epoch}.pt"
+            torch.save(model.state_dict(), model_path)
+            print(f"Model checkpoint saved to {model_path}")
+            
     for epoch in range(args.epochs):
         model.train()
         running_loss = 0.0
@@ -222,10 +266,6 @@ def main():
 
         avg_loss = running_loss / len(dataloader)
         print(f"Epoch {epoch + 1}/{args.epochs}, Loss: {avg_loss:.5f}")
-
-    # ----- Save Model -----
-    torch.save(model.state_dict(), args.output)
-    print(f"Model saved to {args.output}")
 
 if __name__ == "__main__":
     main()
