@@ -1,29 +1,23 @@
 ## usage: python training.py --input 102_training_data_sequece_exp.pt --epochs 30 --model exp --output 102_model_exp.pt
-
-
+import os
+import argparse
+import numpy as np
 import torch
 import torch.nn as nn
-import torch.optim as optim
 import torch.nn.functional as F
-import numpy as np
-from torch.utils.data import TensorDataset, DataLoader
-import argparse
-import os
+from torch.utils.data import DataLoader, TensorDataset
 import lightning as L
-
+import lightning.pytorch as pl
 from lightning.pytorch import Trainer
 from lightning.pytorch.callbacks import ModelCheckpoint
-from pytorch_lightning.loggers import CSVLogger
-    # ----- Constants -----
+from lightning.pytorch.loggers import CSVLogger
 
-L = 32
-# convolution window size in residual units
-W = np.asarray([11, 11, 11, 11, 11, 11, 11, 11,
-                21, 21, 21, 21, 41, 41, 41, 41])
-# atrous rate in residual units
-AR = np.asarray([1, 1, 1, 1, 4, 4, 4, 4,
-                 10, 10, 10, 10, 25, 25, 25, 25])
+# Constants
+L_DIM = 32
+W = np.asarray([11]*8 + [21]*4 + [41]*4)
+AR = np.asarray([1]*4 + [4]*4 + [10]*4 + [25]*4)
 
+# Define ResBlock, Pangolin, PangolinEXP, masked_focal_mse, soft_f1_loss here...
 class ResBlock(nn.Module):
     def __init__(self, L, W, AR, pad=True):
         super(ResBlock, self).__init__()
@@ -47,7 +41,7 @@ class ResBlock(nn.Module):
         out = self.conv2(out)
         out = out + x
         return out
-
+        
 class Pangolin(nn.Module):
     def __init__(self, L, W, AR):
         super(Pangolin, self).__init__()
@@ -96,13 +90,7 @@ class Pangolin(nn.Module):
         #skip = F.pad(skip, (-CL // 2, -CL // 2))
         out1 = F.softmax(self.conv_last1(skip), dim=1)
         out2 = torch.sigmoid(self.conv_last2(skip))
-        out3 = F.softmax(self.conv_last3(skip), dim=1)
-        out4 = torch.sigmoid(self.conv_last4(skip))
-        out5 = F.softmax(self.conv_last5(skip), dim=1)
-        out6 = torch.sigmoid(self.conv_last6(skip))
-        out7 = F.softmax(self.conv_last7(skip), dim=1)
-        out8 = torch.sigmoid(self.conv_last8(skip))
-        return torch.cat([out1, out2, out3, out4, out5, out6, out7, out8], 1)
+        return torch.cat([out1, out2], 1)
         
 class PangolinEXP(nn.Module):
     def __init__(self, L, W, AR):
@@ -138,13 +126,7 @@ class PangolinEXP(nn.Module):
         #skip = F.pad(skip, (-CL // 2, -CL // 2))
         out1 = F.softmax(self.conv_last1(skip), dim=1)
         out2 = torch.sigmoid(self.conv_last2(skip))
-        out3 = F.softmax(self.conv_last3(skip), dim=1)
-        out4 = torch.sigmoid(self.conv_last4(skip))
-        out5 = F.softmax(self.conv_last5(skip), dim=1)
-        out6 = torch.sigmoid(self.conv_last6(skip))
-        out7 = F.softmax(self.conv_last7(skip), dim=1)
-        out8 = torch.sigmoid(self.conv_last8(skip))
-        return torch.cat([out1, out2, out3, out4, out5, out6, out7, out8], 1)
+        return torch.cat([out1, out2], 1)
 
 def sharpened_focal_mse(pred, target, gamma=2.0, min_target=0.01, peak_boost=2.0):
     # Only focus on meaningful (non-zero) target positions
@@ -175,12 +157,90 @@ def masked_focal_mse(pred, target, gamma=2.0, min_target=0.01):
 
 # Soft F1 loss
 def soft_f1_loss(y_pred, y_true, epsilon=1e-7):
+    """
+    y_pred, y_true: [B, 3, T]
+    Focus loss on channels 0 and 1 (binary), ignore or reduce weight on channel 2 (regression).
+    """
     y_pred = torch.clamp(y_pred, 0, 1)
-    tp = torch.sum(y_true * y_pred, dim=[1, 2])
-    fp = torch.sum((1 - y_true) * y_pred, dim=[1, 2])
-    fn = torch.sum(y_true * (1 - y_pred), dim=[1, 2])
-    f1 = 2 * tp / (2 * tp + fp + fn + epsilon)
-    return 1 - f1.mean()
+    
+    f1_losses = []
+    weights = [1.0, 1.0, 0.1]  # downweight channel 2
+
+    for i in range(3):
+        tp = torch.sum(y_true[:, i, :] * y_pred[:, i, :], dim=[1])
+        fp = torch.sum((1 - y_true[:, i, :]) * y_pred[:, i, :], dim=[1])
+        fn = torch.sum(y_true[:, i, :] * (1 - y_pred[:, i, :]), dim=[1])
+        f1 = 2 * tp / (2 * tp + fp + fn + epsilon)
+        f1_losses.append(weights[i] * (1 - f1))
+
+    return torch.mean(sum(f1_losses))
+
+def hybrid_loss(y_pred, y_true, alpha=0.5):
+    """
+    Combines Soft F1 Loss with BCE Loss for binary channels.
+    alpha: weight for Soft F1 vs BCE
+    """
+    # Soft F1 part
+    f1 = soft_f1_loss(y_pred, y_true)
+
+    # BCE part (only for binary channels 0 and 1)
+    bce = nn.BCELoss()
+    bce_loss = 0.5 * (
+        bce(y_pred[:, 0, :], y_true[:, 0, :]) +
+        bce(y_pred[:, 1, :], y_true[:, 1, :])
+    )
+
+    # Combine
+    return alpha * f1 + (1 - alpha) * bce_loss
+
+class PangolinLitModule(L.LightningModule):
+    def __init__(self, model_type='exp', L=L_DIM, W=None, AR=None, switch_epoch=25):
+        super().__init__()
+        self.save_hyperparameters()
+
+        self.model = PangolinEXP(L, W, AR) if model_type == 'exp' else Pangolin(L, W, AR)
+        self.switch_epoch = switch_epoch
+        self.loss_fn = masked_focal_mse
+        self.use_f1 = False
+
+    def forward(self, x):
+        return self.model(x)
+
+    def training_step(self, batch, batch_idx):
+        x, y = batch
+        y_hat = self(x)
+        loss = masked_focal_mse(y_hat, y)
+        loss = soft_f1_loss(y_hat, y) if self.use_f1 else masked_focal_mse(y_hat, y)
+        self.log("train_loss", loss, prog_bar=True)
+        return loss
+
+    def on_train_epoch_start(self):
+        if not self.use_f1 and self.current_epoch >= self.switch_epoch:
+            self.use_f1 = True
+            print(f"🔁 Switching to soft F1 loss at epoch {self.current_epoch}")
+
+    def configure_optimizers(self):
+        return torch.optim.Adam(self.parameters(), lr=1e-4)
+
+    def predict_step(self, batch, batch_idx):
+        return self.model(batch)
+
+class PangolinDataModule(L.LightningDataModule):
+    def __init__(self, input_path, batch_size=10, model_type="exp"):
+        super().__init__()
+        self.input_path = input_path
+        self.batch_size = batch_size
+        self.model_type = model_type
+
+    def setup(self, stage=None):
+        data = torch.load(self.input_path, weights_only=True)
+        X = torch.stack(data['X'])
+        y = torch.stack(data['y'])
+        X = X[:, :4, :] if self.model_type == "seq" else X
+        self.dataset = TensorDataset(X, y)
+
+    def train_dataloader(self):
+        return DataLoader(self.dataset, batch_size=self.batch_size, shuffle=True, num_workers=4)
 
 def main():
     parser = argparse.ArgumentParser(description="Train Pangolin model on PSI data")
@@ -191,85 +251,28 @@ def main():
     parser.add_argument('--output', type=str, default="trained_model.pt", help="Output file name for model")
     args = parser.parse_args()
 
-    os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    W = np.asarray([11]*8 + [21]*4 + [41]*4)
+    AR = np.asarray([1]*4 + [4]*4 + [10]*4 + [25]*4)
 
-        # ----- Load Data -----
-    data = torch.load(args.input, weights_only=True)
-    training_label = torch.stack(data['y'])
+    dm = PangolinDataModule(input_path=args.input, model_type=args.model)
+    model = PangolinLitModule(model_type=args.model, W=W, AR=AR)
 
-    # ----- Model -----
-    if args.model == "seq":
-        model = Pangolin(L=L, W=W, AR=AR).to(device)
-        training_input = torch.stack(data['X'])[:, :4, :].to(device)  # Ensure only 4 input channels
-    elif args.model == "exp":
-        model = PangolinEXP(L=L, W=W, AR=AR).to(device)
-        training_input = torch.stack(data['X'])[:, :, :].to(device)  # Ensure only 4 input channels
+    # Checkpoint callback
+    checkpoint_callback = ModelCheckpoint(
+        dirpath=os.path.dirname(args.output) or ".",
+        filename=os.path.basename(args.output).replace(".ckpt", "_epoch{epoch:02d}"),
+        save_top_k=-1,
+        every_n_epochs=100
+    )
 
+    trainer = Trainer(
+        max_epochs=args.epochs,
+        callbacks=[checkpoint_callback],
+        logger=CSVLogger(save_dir="logs", name="pangolin"),
+        accelerator="auto"
+    )
 
-    # Pad to [N, 12, 15000], then crop [N, 12, 5000] from middle
-    training_label_padded = F.pad(training_label, pad=(0, 0, 0, 9))
-    #training_label_corped = training_label_padded[:, :, 5000:10000]
-
-    dataset = TensorDataset(training_input, training_label_padded.to(device))
-    dataloader = DataLoader(dataset, batch_size=16, shuffle=True)    
-    optimizer = optim.Adam(model.parameters(), lr=1e-4)
-
-    # ----- Training Loop -----
-    loss_fn = masked_focal_mse
-    use_f1_loss = False
-    recent_losses = []
-    for epoch in range(1, args.epochs + 1):
-        model.train()
-        running_loss = 0.0
-    
-        for batch_X, batch_y in dataloader:
-            batch_X, batch_y = batch_X.to(device), batch_y.to(device)
-            optimizer.zero_grad()
-            pred = model(batch_X)
-    
-            if use_f1_loss:
-                loss = soft_f1_loss(pred, batch_y)
-            else:
-                loss = masked_focal_mse(pred, batch_y)
-    
-            loss.backward()
-            optimizer.step()
-            running_loss += loss.item()
-    
-        avg_loss = running_loss / len(dataloader)
-        print(f"Epoch {epoch}/{args.epochs}, Loss: {avg_loss:.5f}")
-    
-        # Track recent loss history to detect stability
-        recent_losses.append(avg_loss)
-        if len(recent_losses) > 5:
-            recent_losses.pop(0)
-            std_loss = np.std(recent_losses)
-            if not use_f1_loss and std_loss < 1e-4:
-                print("Loss has stabilized. Switching to soft F1 loss.")
-                use_f1_loss = True
-    
-        # Save every 50 epochs
-        if epoch % 50 == 0:
-            model_path = f"{os.path.splitext(args.output)[0]}_epoch{epoch}.pt"
-            torch.save(model.state_dict(), model_path)
-            print(f"Model checkpoint saved to {model_path}")
-            
-    for epoch in range(args.epochs):
-        model.train()
-        running_loss = 0.0
-        for batch_X, batch_y in dataloader:
-            batch_X, batch_y = batch_X.to(device), batch_y.to(device)
-
-            optimizer.zero_grad()
-            pred = model(batch_X)  # shape: (batch, 15000, 3)
-            loss = loss_fn(pred, batch_y)
-            loss.backward()
-            optimizer.step()
-            running_loss += loss.item()
-
-        avg_loss = running_loss / len(dataloader)
-        print(f"Epoch {epoch + 1}/{args.epochs}, Loss: {avg_loss:.5f}")
+    trainer.fit(model, dm)
 
 if __name__ == "__main__":
     main()

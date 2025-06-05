@@ -1,0 +1,50 @@
+AR: !!python/object/apply:numpy._core.multiarray._reconstruct
+  args:
+  - &id001 !!python/name:numpy.ndarray ''
+  - !!python/tuple
+    - 0
+  - !!binary |
+    Yg==
+  state: !!python/tuple
+  - 1
+  - !!python/tuple
+    - 16
+  - &id002 !!python/object/apply:numpy.dtype
+    args:
+    - i8
+    - false
+    - true
+    state: !!python/tuple
+    - 3
+    - <
+    - null
+    - null
+    - null
+    - -1
+    - -1
+    - 0
+  - false
+  - !!binary |
+    AQAAAAAAAAABAAAAAAAAAAEAAAAAAAAAAQAAAAAAAAAEAAAAAAAAAAQAAAAAAAAABAAAAAAAAAAE
+    AAAAAAAAAAoAAAAAAAAACgAAAAAAAAAKAAAAAAAAAAoAAAAAAAAAGQAAAAAAAAAZAAAAAAAAABkA
+    AAAAAAAAGQAAAAAAAAA=
+L: 32
+W: !!python/object/apply:numpy._core.multiarray._reconstruct
+  args:
+  - *id001
+  - !!python/tuple
+    - 0
+  - !!binary |
+    Yg==
+  state: !!python/tuple
+  - 1
+  - !!python/tuple
+    - 16
+  - *id002
+  - false
+  - !!binary |
+    CwAAAAAAAAALAAAAAAAAAAsAAAAAAAAACwAAAAAAAAALAAAAAAAAAAsAAAAAAAAACwAAAAAAAAAL
+    AAAAAAAAABUAAAAAAAAAFQAAAAAAAAAVAAAAAAAAABUAAAAAAAAAKQAAAAAAAAApAAAAAAAAACkA
+    AAAAAAAAKQAAAAAAAAA=
+model_type: exp
+switch_epoch: 15

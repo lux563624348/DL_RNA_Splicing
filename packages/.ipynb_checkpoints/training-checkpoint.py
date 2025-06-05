@@ -9,7 +9,11 @@ import numpy as np
 from torch.utils.data import TensorDataset, DataLoader
 import argparse
 import os
+import lightning as L
 
+from lightning.pytorch import Trainer
+from lightning.pytorch.callbacks import ModelCheckpoint
+from pytorch_lightning.loggers import CSVLogger
     # ----- Constants -----
 
 L = 32
