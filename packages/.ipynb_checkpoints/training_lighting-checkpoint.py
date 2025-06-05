@@ -175,23 +175,52 @@ def soft_f1_loss(y_pred, y_true, epsilon=1e-7):
 
     return torch.mean(sum(f1_losses))
 
-def hybrid_loss(y_pred, y_true, alpha=0.5):
+def weighted_mse_loss(pred, target, threshold=0.5, low_weight=1.0, high_weight=1000.0):
     """
-    Combines Soft F1 Loss with BCE Loss for binary channels.
-    alpha: weight for Soft F1 vs BCE
+    Weighted MSE loss that puts higher weight on targets > threshold.
+    
+    Args:
+        pred: predicted tensor [B, T]
+        target: ground truth tensor [B, T]
+        threshold: float, target value cutoff for higher weighting
+        low_weight: weight for target <= threshold
+        high_weight: weight for target > threshold
     """
-    # Soft F1 part
-    f1 = soft_f1_loss(y_pred, y_true)
+    high_mask = (target > threshold).float()
+    low_mask = 1.0 - high_mask
+    
+    weight_mask = low_weight * low_mask + high_weight * high_mask
+    loss = weight_mask * (pred - target) ** 2
+    return loss.mean()
 
-    # BCE part (only for binary channels 0 and 1)
-    bce = nn.BCELoss()
-    bce_loss = 0.5 * (
-        bce(y_pred[:, 0, :], y_true[:, 0, :]) +
-        bce(y_pred[:, 1, :], y_true[:, 1, :])
-    )
 
-    # Combine
-    return alpha * f1 + (1 - alpha) * bce_loss
+def hybrid_loss(y_pred, y_true, weight_f1=0.5, weight_bce=1.0, weight_usage=1.0):
+    """
+    Combines BCE for binary channels [0, 1] and MSE for usage [2].
+    Optionally includes soft F1 as a regularizer for [0, 1].
+    """
+    # Clamp predictions to valid range
+    y_pred = torch.clamp(y_pred, 0, 1)
+
+    # Binary cross entropy for channels 0 and 1
+    bce_0 = F.binary_cross_entropy(y_pred[:, 0, :], y_true[:, 0, :])
+    bce_1 = F.binary_cross_entropy(y_pred[:, 1, :], y_true[:, 1, :])
+    bce_loss = bce_0 + bce_1
+
+    # Mean squared error for usage prediction (channel 2)
+    mse_usage = weighted_mse_loss(y_pred[:, 2, :], y_true[:, 2, :])
+    #F.mse_loss(y_pred[:, 2, :], y_true[:, 2, :])
+
+    # Optional: Soft F1 for channels 0 and 1 (as a regularizer)
+    f1_loss = 0
+    for i in [0, 1]:
+        tp = torch.sum(y_true[:, i, :] * y_pred[:, i, :], dim=1)
+        fp = torch.sum((1 - y_true[:, i, :]) * y_pred[:, i, :], dim=1)
+        fn = torch.sum(y_true[:, i, :] * (1 - y_pred[:, i, :]), dim=1)
+        f1 = 2 * tp / (2 * tp + fp + fn + 1e-7)
+        f1_loss += (1 - f1).mean()
+    
+    return weight_bce * bce_loss + weight_usage * mse_usage + weight_f1 * f1_loss
 
 class PangolinLitModule(L.LightningModule):
     def __init__(self, model_type='exp', L=L_DIM, W=None, AR=None, switch_epoch=25):
@@ -209,8 +238,9 @@ class PangolinLitModule(L.LightningModule):
     def training_step(self, batch, batch_idx):
         x, y = batch
         y_hat = self(x)
-        loss = masked_focal_mse(y_hat, y)
-        loss = soft_f1_loss(y_hat, y) if self.use_f1 else masked_focal_mse(y_hat, y)
+#        loss = masked_focal_mse(y_hat, y)
+        loss = hybrid_loss(y_hat, y) if self.use_f1 else masked_focal_mse(y_hat, y)
+        #loss = hybrid_loss
         self.log("train_loss", loss, prog_bar=True)
         return loss
 

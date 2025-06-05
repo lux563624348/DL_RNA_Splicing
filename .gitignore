@@ -3,3 +3,5 @@ raw_data/*
 .ipynb_checkpoints/*
 *.txt
 *.tsv
+logs/*
+*.ckpt
