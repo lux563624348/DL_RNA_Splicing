@@ -146,7 +146,6 @@ def sharpened_focal_mse(pred, target, gamma=2.0, min_target=0.01, peak_boost=2.0
     weight = sharpen_weight * focal_weight
     return torch.mean(weight * error)
 
-
 def masked_focal_mse(pred, target, gamma=2.0, min_target=0.01):
     mask = (target > min_target)
     if mask.sum() == 0:
@@ -194,7 +193,7 @@ def weighted_mse_loss(pred, target, threshold=0.5, low_weight=1.0, high_weight=1
     return loss.mean()
 
 
-def hybrid_loss(y_pred, y_true, weight_f1=0.5, weight_bce=1.0, weight_usage=1.0):
+def hybrid_loss(y_pred, y_true, weight_f1=1.0, weight_bce=0, weight_usage=1.0):
     """
     Combines BCE for binary channels [0, 1] and MSE for usage [2].
     Optionally includes soft F1 as a regularizer for [0, 1].
