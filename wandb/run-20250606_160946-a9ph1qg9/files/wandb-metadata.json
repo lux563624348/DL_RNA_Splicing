@@ -1,0 +1,52 @@
+{
+  "os": "Linux-6.6.87.1-microsoft-standard-WSL2-x86_64-with-glibc2.35",
+  "python": "CPython 3.11.9",
+  "startedAt": "2025-06-06T20:09:47.165216Z",
+  "args": [
+    "--input",
+    "2027sTS_training_data_sequece_exp.pt",
+    "--epochs",
+    "200",
+    "--model",
+    "exp",
+    "--output",
+    "2027sTS_training_data_sequece_exp_model.ckpt"
+  ],
+  "program": "/home/xli_p14/github/DL_RNA_Splicing/./packages/training_lighting.py",
+  "codePath": "packages/training_lighting.py",
+  "git": {
+    "remote": "git@github.com:lux563624348/DL_RNA_Splicing.git",
+    "commit": "516c21d6fa499f6d8eee523f05a6d2e208daf4ef"
+  },
+  "email": "lux@gwmail.gwu.edu",
+  "root": ".",
+  "host": "Luffy",
+  "executable": "/home/xli_p14/miniconda3/envs/DL_RNA/bin/python",
+  "codePathLocal": "packages/training_lighting.py",
+  "cpu_count": 4,
+  "cpu_count_logical": 7,
+  "gpu": "NVIDIA T500",
+  "gpu_count": 1,
+  "disk": {
+    "/": {
+      "total": "1081101176832",
+      "used": "205926785024"
+    }
+  },
+  "memory": {
+    "total": "47345790976"
+  },
+  "cpu": {
+    "count": 4,
+    "countLogical": 7
+  },
+  "gpu_nvidia": [
+    {
+      "name": "NVIDIA T500",
+      "memoryTotal": "4294967296",
+      "architecture": "Turing",
+      "uuid": "GPU-4f934ee9-ac6b-dbc0-2ae1-9e62d811f5bb"
+    }
+  ],
+  "cudaVersion": "12.2"
+}

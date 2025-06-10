@@ -10,7 +10,8 @@ import lightning as L
 import lightning.pytorch as pl
 from lightning.pytorch import Trainer
 from lightning.pytorch.callbacks import ModelCheckpoint
-from lightning.pytorch.loggers import CSVLogger
+from lightning.pytorch.loggers import WandbLogger
+import wandb
 
 # Constants
 L_DIM = 32
@@ -294,10 +295,13 @@ def main():
         every_n_epochs=100
     )
 
+    # WandB logger
+    wandb_logger = WandbLogger(project="DL_RNA_Splicing", name=os.path.basename(args.output))
+
     trainer = Trainer(
         max_epochs=args.epochs,
         callbacks=[checkpoint_callback],
-        logger=CSVLogger(save_dir="logs", name="pangolin"),
+        logger=wandb_logger,
         accelerator="auto"
     )
 

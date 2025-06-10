@@ -1,0 +1,17 @@
+/home/xli_p14/miniconda3/envs/DL_RNA/lib/python3.11/site-packages/lightning/pytorch/callbacks/model_checkpoint.py:654: Checkpoint directory /home/xli_p14/github/DL_RNA_Splicing exists and is not empty.
+LOCAL_RANK: 0 - CUDA_VISIBLE_DEVICES: [0]
+
+  | Name  | Type        | Params | Mode
+----------------------------------------------
+0 | model | PangolinEXP | 697 K  | train
+----------------------------------------------
+697 K     Trainable params
+0         Non-trainable params
+697 K     Total params
+2.789     Total estimated model params size (MB)
+97        Modules in train mode
+0         Modules in eval mode
+/home/xli_p14/miniconda3/envs/DL_RNA/lib/python3.11/site-packages/lightning/pytorch/loops/fit_loop.py:310: The number of training batches (1) is smaller than the logging interval Trainer(log_every_n_steps=50). Set a lower value for log_every_n_steps if you want to see logs for the training epoch.
+Epoch 25:   0%|                                                       | 0/1 [00:00<?, ?it/s, v_num=1qg9, train_loss=0.00177]🔁 Switching to soft F1 loss at epoch 25
+Epoch 199: 100%|████████████████████████████████████████████████| 1/1 [00:02<00:00,  0.36it/s, v_num=1qg9, train_loss=1.300]
+`Trainer.fit` stopped: `max_epochs=200` reached.
