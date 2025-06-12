@@ -194,7 +194,7 @@ def weighted_mse_loss(pred, target, threshold=0.5, low_weight=1.0, high_weight=1
     return loss.mean()
 
 
-def hybrid_loss(y_pred, y_true, weight_f1=1.0, weight_bce=0, weight_usage=1.0):
+def hybrid_loss(y_pred, y_true, weight_f1=1.0, weight_bce=1.0, weight_usage=1.0):
     """
     Combines BCE for binary channels [0, 1] and MSE for usage [2].
     Optionally includes soft F1 as a regularizer for [0, 1].
@@ -217,7 +217,7 @@ def hybrid_loss(y_pred, y_true, weight_f1=1.0, weight_bce=0, weight_usage=1.0):
         tp = torch.sum(y_true[:, i, :] * y_pred[:, i, :], dim=1)
         fp = torch.sum((1 - y_true[:, i, :]) * y_pred[:, i, :], dim=1)
         fn = torch.sum(y_true[:, i, :] * (1 - y_pred[:, i, :]), dim=1)
-        f1 = 2 * tp / (2 * tp + fp + fn + 1e-7)
+        f1 = 2 * (tp + 1e-7) / (2 * tp + fp + fn + 1e-7)
         f1_loss += (1 - f1).mean()
     
     return weight_bce * bce_loss + weight_usage * mse_usage + weight_f1 * f1_loss
@@ -245,6 +245,7 @@ class PangolinLitModule(L.LightningModule):
         return loss
 
     def on_train_epoch_start(self):
+        ## if <1% 
         if not self.use_f1 and self.current_epoch >= self.switch_epoch:
             self.use_f1 = True
             print(f"🔁 Switching to soft F1 loss at epoch {self.current_epoch}")
