@@ -203,9 +203,14 @@ def hybrid_loss(y_pred, y_true, weight_f1=1.0, weight_bce=1.0, weight_usage=1.0)
     y_pred = torch.clamp(y_pred, 0, 1)
 
     # Binary cross entropy for channels 0 and 1
-    bce_0 = F.binary_cross_entropy(y_pred[:, 0, :], y_true[:, 0, :])
-    bce_1 = F.binary_cross_entropy(y_pred[:, 1, :], y_true[:, 1, :])
-    bce_loss = bce_0 + bce_1
+    #bce_0 = F.binary_cross_entropy(y_pred[:, 0, :], y_true[:, 0, :])
+    #bce_1 = F.binary_cross_entropy(y_pred[:, 1, :], y_true[:, 1, :])
+    #bce_loss = bce_0 + bce_1
+
+    # Convert two-channel labels to single class index: (1,0)->0, (0,1)->1
+    y_cls = torch.argmax(y_true[:, 0:2, :], dim=1)  # shape: (batch, seq_len)
+    logits = y_pred[:, 0:2, :].permute(0, 2, 1)     # shape: (batch, seq_len, 2)
+    ce_loss = F.cross_entropy(logits.reshape(-1, 2), y_cls.reshape(-1))
 
     # Mean squared error for usage prediction (channel 2)
     mse_usage = weighted_mse_loss(y_pred[:, 2, :], y_true[:, 2, :])
@@ -220,7 +225,7 @@ def hybrid_loss(y_pred, y_true, weight_f1=1.0, weight_bce=1.0, weight_usage=1.0)
         f1 = 2 * (tp + 1e-7) / (2 * tp + fp + fn + 1e-7)
         f1_loss += (1 - f1).mean()
     
-    return weight_bce * bce_loss + weight_usage * mse_usage + weight_f1 * f1_loss
+    return weight_bce * ce_loss + weight_usage * mse_usage + weight_f1 * f1_loss
 
 class PangolinLitModule(L.LightningModule):
     def __init__(self, model_type='exp', L=L_DIM, W=None, AR=None, switch_epoch=25):

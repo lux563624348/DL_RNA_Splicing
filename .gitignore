@@ -6,3 +6,4 @@ raw_data/*
 logs/*
 *.ckpt
 wandb/*
+wandb/*.log
