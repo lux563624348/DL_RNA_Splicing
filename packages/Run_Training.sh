@@ -8,4 +8,4 @@ WANDB_API_KEY=${wandb_key} python ./packages/training_lighting.py --input $1 --e
 
 #python ./packages/training.py --input ./${Data_ID} --epochs 300 --model exp --output ${Data_ID/.pt/_model.pt}
 
-#aws s3 cp ${Data_ID/.pt/_model.pt} $AWS_S3_PATH/
+aws s3 cp ${Data_ID/.pt/_model.pt} $AWS_S3_PATH/

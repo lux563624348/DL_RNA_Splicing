@@ -123,6 +123,7 @@ def make_blocks(start, end, chrom, genome, FIXED_PADDING=5000, BLOCK_SIZE=15000)
 
 def assign_labels(block_start, block_end, psi_dict, PADDING=5000, BLOCK_SIZE = 15000):
     labels = np.zeros((BLOCK_SIZE, 3))  # 12 for 1 tissue (spliced/unspliced/usage) x 4 tissues
+    labels[:, 0] = 1 ## default unspliced site for all
     mid_start = PADDING
     mid_end = BLOCK_SIZE - PADDING
 
