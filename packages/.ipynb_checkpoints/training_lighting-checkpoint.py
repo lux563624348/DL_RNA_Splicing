@@ -224,8 +224,10 @@ def hybrid_loss(y_pred, y_true, weight_f1=1.0, weight_bce=1.0, weight_usage=1.0)
         fn = torch.sum(y_true[:, i, :] * (1 - y_pred[:, i, :]), dim=1)
         f1 = 2 * (tp + 1e-7) / (2 * tp + fp + fn + 1e-7)
         f1_loss += (1 - f1).mean()
-    
-    return weight_bce * bce_loss + weight_usage * mse_usage + weight_f1 * f1_loss
+    final_loss = weight_bce * bce_loss + weight_usage * mse_usage + weight_f1 * f1_loss
+    print("bce:", bce_loss.item(), "mse:", mse_usage.item(), "f1:", f1_loss.item(), 
+      "total:", (weight_bce * bce_loss + weight_usage * mse_usage + weight_f1 * f1_loss).item())
+    return torch.clamp(final_loss, min=0.0)
 
 class PangolinLitModule(L.LightningModule):
     def __init__(self, model_type='exp', L=L_DIM, W=None, AR=None, switch_epoch=25):
