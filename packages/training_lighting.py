@@ -62,20 +62,6 @@ class Pangolin(nn.Module):
         self.conv_last6 = nn.Conv1d(L, 1, 1)
         self.conv_last7 = nn.Conv1d(L, 2, 1)
         self.conv_last8 = nn.Conv1d(L, 1, 1)
-        self.init_weights()
-        
-    def init_weights(self):
-        # Bias final binary conv layers so initial sigmoid ≈ 0
-        nn.init.constant_(self.conv_last2.bias, -5.0)
-        nn.init.constant_(self.conv_last4.bias, -5.0)
-        nn.init.constant_(self.conv_last6.bias, -5.0)
-        nn.init.constant_(self.conv_last8.bias, -5.0)
-    
-        # Optionally init weights to zero for those layers too
-        nn.init.constant_(self.conv_last2.weight, 0.0)
-        nn.init.constant_(self.conv_last4.weight, 0.0)
-        nn.init.constant_(self.conv_last6.weight, 0.0)
-        nn.init.constant_(self.conv_last8.weight, 0.0)
 
     def forward(self, x):
         conv = self.conv1(x)
@@ -92,7 +78,36 @@ class Pangolin(nn.Module):
         out1 = F.softmax(self.conv_last1(skip), dim=1)
         out2 = torch.sigmoid(self.conv_last2(skip))
         return torch.cat([out1, out2], 1)
+
+class SplicingEXP(nn.Module):
+    def __init__(self, L, W, AR):
+        super(SplicingEXP, self).__init__()
+        self.n_chans = L
+        self.conv1 = nn.Conv1d(14, L, 1)
+        self.skip = nn.Conv1d(L, L, 1)
+        self.resblocks, self.convs = nn.ModuleList(), nn.ModuleList()
         
+        for i in range(len(W)):
+            self.resblocks.append(ResBlock(L, W[i], AR[i]))
+            if (((i + 1) % 4 == 0) or ((i + 1) == len(W))):
+                self.convs.append(nn.Conv1d(L, L, 1))
+        self.conv_last1 = nn.Conv1d(L, 1, 1)
+        self.conv_last2 = nn.Conv1d(L, 1, 1)
+        
+    def forward(self, x):
+        conv = self.conv1(x)
+        skip = self.skip(conv)
+        j = 0
+        for i in range(len(W)):
+            conv = self.resblocks[i](conv)
+            if (((i + 1) % 4 == 0) or ((i + 1) == len(W))):
+                dense = self.convs[j](conv)
+                j += 1
+                skip = skip + dense
+        out1 = F.softmax(self.conv_last1(skip), dim=1)
+        out2 = torch.sigmoid(self.conv_last2(skip))
+        return torch.cat([out1, out2], 1)
+
 class PangolinEXP(nn.Module):
     def __init__(self, L, W, AR):
         super(PangolinEXP, self).__init__()
@@ -125,7 +140,7 @@ class PangolinEXP(nn.Module):
                 skip = skip + dense
         #CL = 2 * np.sum(AR * (W - 1))
         #skip = F.pad(skip, (-CL // 2, -CL // 2))
-        out1 = F.softmax(self.conv_last1(skip), dim=1)
+        out1 = self.conv_last1(skip)
         out2 = torch.sigmoid(self.conv_last2(skip))
         return torch.cat([out1, out2], 1)
 
@@ -156,20 +171,20 @@ def masked_focal_mse(pred, target, gamma=2.0, min_target=0.01):
     return torch.mean(weight * error)
 
 # Soft F1 loss
-def soft_f1_loss(y_pred, y_true, epsilon=1e-7):
+def soft_f1_loss(y_pred_logits, y_true, epsilon=1e-7):
     """
-    y_pred, y_true: [B, 3, T]
+    y_pred_logits, y_true: [B, 3, T]
     Focus loss on channels 0 and 1 (binary), ignore or reduce weight on channel 2 (regression).
     """
-    y_pred = torch.clamp(y_pred, 0, 1)
+    y_pred_logits = torch.clamp(y_pred_logits, 0, 1)
     
     f1_losses = []
     weights = [1.0, 1.0, 0.1]  # downweight channel 2
 
     for i in range(3):
-        tp = torch.sum(y_true[:, i, :] * y_pred[:, i, :], dim=[1])
-        fp = torch.sum((1 - y_true[:, i, :]) * y_pred[:, i, :], dim=[1])
-        fn = torch.sum(y_true[:, i, :] * (1 - y_pred[:, i, :]), dim=[1])
+        tp = torch.sum(y_true[:, i, :] * y_pred_logits[:, i, :], dim=[1])
+        fp = torch.sum((1 - y_true[:, i, :]) * y_pred_logits[:, i, :], dim=[1])
+        fn = torch.sum(y_true[:, i, :] * (1 - y_pred_logits[:, i, :]), dim=[1])
         f1 = 2 * tp / (2 * tp + fp + fn + epsilon)
         f1_losses.append(weights[i] * (1 - f1))
 
@@ -186,6 +201,7 @@ def weighted_mse_loss(pred, target, threshold=0.5, low_weight=1.0, high_weight=1
         low_weight: weight for target <= threshold
         high_weight: weight for target > threshold
     """
+    
     high_mask = (target > threshold).float()
     low_mask = 1.0 - high_mask
     
@@ -194,40 +210,40 @@ def weighted_mse_loss(pred, target, threshold=0.5, low_weight=1.0, high_weight=1
     return loss.mean()
 
 
-def hybrid_loss(y_pred, y_true, weight_f1=1.0, weight_bce=1.0, weight_usage=1.0):
+def hybrid_loss(y_pred_logits, y_true, weight_f1=1.0, weight_bce=1.0, weight_usage=1.0):
     """
     Combines BCE for binary channels [0, 1] and MSE for usage [2].
     Optionally includes soft F1 as a regularizer for [0, 1].
     """
     # Clamp predictions to valid range
-    y_pred = torch.clamp(y_pred, 0, 1)
+    y_pred_logits = torch.clamp(y_pred_logits, 0, 1)
 
     # Binary cross entropy for channels 0 and 1
-    #bce_0 = F.binary_cross_entropy(y_pred[:, 0, :], y_true[:, 0, :])
-    bce_1 = F.binary_cross_entropy(y_pred[:, 1, :], y_true[:, 1, :])
-    bce_loss = bce_1
+    #bce_0 = F.binary_cross_entropy(y_pred_logits[:, 0, :], y_true[:, 0, :])
+    #bce_1 = F.binary_cross_entropy(y_pred_logits[:, 1, :], y_true[:, 1, :])
+    #bce_loss = bce_0 + bce_1
 
     # Convert two-channel labels to single class index: (1,0)->0, (0,1)->1
-    #y_cls = torch.argmax(y_true[:, 0:2, :], dim=1)  # shape: (batch, seq_len)
-    #logits = y_pred[:, 0:2, :].permute(0, 2, 1)     # shape: (batch, seq_len, 2)
-    #ce_loss = F.cross_entropy(logits.reshape(-1, 2), y_cls.reshape(-1))
-
+    y_cls = torch.argmax(y_true[:, 0:2, :], dim=1)  # shape: (batch, seq_len)
+    logits = y_pred_logits[:, 0:2, :].permute(0, 2, 1)     # shape: (batch, seq_len, 2)
+    ce_loss = F.cross_entropy(logits.reshape(-1, 2), y_cls.reshape(-1))
+    #F.cross_entropy(y_pred_logits, )
+    
     # Mean squared error for usage prediction (channel 2)
-    mse_usage = weighted_mse_loss(y_pred[:, 2, :], y_true[:, 2, :])
-    #F.mse_loss(y_pred[:, 2, :], y_true[:, 2, :])
+    mse_usage = weighted_mse_loss(y_pred_logits[:, 2, :], y_true[:, 2, :])
+    #F.mse_loss(y_pred_logits[:, 2, :], y_true[:, 2, :])
 
     # Optional: Soft F1 for channels 0 and 1 (as a regularizer)
     f1_loss = 0
-    for i in [1]: ## no regularization for unsplice (99% are 1)
-        tp = torch.sum(y_true[:, i, :] * y_pred[:, i, :], dim=1)
-        fp = torch.sum((1 - y_true[:, i, :]) * y_pred[:, i, :], dim=1)
-        fn = torch.sum(y_true[:, i, :] * (1 - y_pred[:, i, :]), dim=1)
-        f1 = (2 * tp ) / (2 * tp + fp + fn + 1e-7)
+    y_pred_logits = F.softmax(y_pred_logits, dim=1)
+    for i in [1]:
+        tp = torch.sum(y_true[:, i, :] * y_pred_logits[:, i, :], dim=1)
+        fp = torch.sum((1 - y_true[:, i, :]) * y_pred_logits[:, i, :], dim=1)
+        fn = torch.sum(y_true[:, i, :] * (1 - y_pred_logits[:, i, :]), dim=1)
+        f1 = (2 * tp + 1e-9) / (2 * tp + fp + fn + 1e-7)
         f1_loss += (1 - f1).mean()
-    final_loss = weight_bce * bce_loss + weight_usage * mse_usage + weight_f1 * f1_loss
     
-    print("bce:", bce_loss.item(), "mse:", mse_usage.item(), "f1:", f1_loss.item(), "tp:", tp, "fp:", fp, "fn:", fn) 
-    return torch.clamp(final_loss, min=0.0)
+    return weight_bce * ce_loss + weight_usage * mse_usage + weight_f1 * f1_loss
 
 class PangolinLitModule(L.LightningModule):
     def __init__(self, model_type='exp', L=L_DIM, W=None, AR=None, switch_epoch=25):
@@ -245,7 +261,9 @@ class PangolinLitModule(L.LightningModule):
     def training_step(self, batch, batch_idx):
         x, y = batch
         y_hat = self(x)
-        loss = hybrid_loss(y_hat, y) if self.use_f1 else weighted_mse_loss(y_hat, y)
+#        loss = masked_focal_mse(y_hat, y)
+        loss = hybrid_loss(y_hat, y) if self.use_f1 else masked_focal_mse(y_hat, y)
+        #loss = hybrid_loss
         self.log("train_loss", loss, prog_bar=True)
         return loss
 
